@@ -1,5 +1,11 @@
 const SELECTOR_PREFIX = 'selector::';
 
+const CONSOLE_STYLE = {
+  DEFAULT: 'display: block; color: #fff; background: #130f40; text-decoration: underline; margin-right: 10px',
+  DATA_ITEM: 'color: #f1c40f; background: #130f40; font-weight: 600',
+  SELECTOR: 'color: #2ecc71; background: #130f40; font-weight: 600'
+};
+
 class DataStore {
   constructor() {
     this.store = {};
@@ -9,7 +15,11 @@ class DataStore {
   }
 
   _initDataStoreItem(name, value) {
-    if (!this.store.hasOwnProperty(name)) {
+    if (!Object.prototype.hasOwnProperty.call(this.store, name)) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`%c[DATA STORE]初始化Data元素: %c${name}%c (初始值: %c${JSON.stringify(value, null, '  ')}%c)`, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.DATA_ITEM, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.DATA_ITEM, CONSOLE_STYLE.DEFAULT);
+      }
+
       this.store[name] = {
         _data: value,
         _selectors: []
@@ -38,6 +48,10 @@ class DataStore {
     selectors.forEach((selectorName) => {
       if (selectorName.indexOf(SELECTOR_PREFIX) !== 0) {
         selectorName = `${SELECTOR_PREFIX}${selectorName}`;
+      }
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`%c[DATA STORE]初始化selector: %c${selectorName}`, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR);
       }
 
       this.selectors[selectorName] = {
@@ -172,14 +186,105 @@ class DataStore {
     };
   }
 
+  _compareValuesDiff(a, b) {
+    const notFunction = (o) => typeof o !== 'function';
+    const bothValueNotFunction = (a, b) => notFunction(a) && notFunction(b);
+
+    const isObject = (obj) => Object.prototype.toString.call(obj) === '[object Object]';
+    const nonOnbjectValueEquals = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const isShallowDiff = (a, b) => {
+      if (Object.keys(a).length !== Object.keys(b).length) {
+        return true;
+      }
+
+      for (let key in a) {
+        if (a.hasOwnProperty(key)) {
+          const valueA = a[key];
+          const valueB = b[key];
+
+          if (bothValueNotFunction(valueA, valueB) && (!isObject(valueA) && !isObject(valueB))) {
+            return !nonOnbjectValueEquals(valueA, valueB);
+          }
+
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const compareStrategies = [
+      {
+        compareCase: (a, b) => {
+          return isObject(a) && isObject(b);
+        },
+        compareStrategy: (a, b) => {
+          return isShallowDiff(a, b);
+        }
+      },
+      {
+        compareCase: (a, b) => {
+          return typeof a !== typeof b;
+        },
+        compareStrategy: () => {
+          return true;
+        }
+      },
+      {
+        compareCase: (a, b) => {
+          return typeof a === 'function' && typeof b === 'function';
+        },
+        compareStrategy: () => {
+          return true;
+        }
+      },
+      {
+        compareCase: () => {
+          return true;
+        },
+        compareStrategy: (a, b) => {
+          return JSON.stringify(a) !== JSON.stringify(b);
+        }
+      }
+    ];
+
+    let compareHandler = null;
+    compareStrategies.some(({ compareCase, compareStrategy }) => {
+      const matchCase = compareCase(a, b);
+      if (matchCase) {
+        compareHandler = compareStrategy;
+      }
+      return matchCase;
+    });
+
+    return compareHandler(a, b);
+  }
+
   update(name, data) {
     this._initDataStoreItem(name);
 
     const prevData = this.store[name]._data;
+    const depSelectors = this.store[name]._selectors;
+
+    if (!this._compareValuesDiff(data, prevData)) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`%c[DATA STORE]Data元素无变化，无需更新: %c${name}
+      %cDEP-SELECTORS: %c${depSelectors.join(', ')}
+      %cCURRENT: %c${JSON.stringify(data, null, '  ')}
+      %cPREV: %c${JSON.stringify(prevData, null, '  ')}
+      `, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.DATA_ITEM, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.DATA_ITEM, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.DATA_ITEM);
+      }
+      return;
+    }
 
     this.store[name]._data = data;
 
-    const depSelectors = this.store[name]._selectors;
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`%c[DATA STORE]更新Data元素: %c${name}
+    %cDEP-SELECTORS: %c${depSelectors.join(', ')}
+    %cCURRENT==>: %c${JSON.stringify(data, null, '  ')}
+    %c<==PREV: %c${JSON.stringify(prevData, null, '  ')}
+    `, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.DATA_ITEM, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.DATA_ITEM, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.DATA_ITEM);
+    }
 
     // 遍历data listener...
     this.listeners[name].forEach(({ onChange }) => {
@@ -202,13 +307,25 @@ class DataStore {
 
     const { _transformer, _deps } = this.selectors[name];
     const depData = _deps.map((dep) => this.store[dep]._data);
-    return _transformer(...depData);
+    const selectorValue = _transformer(...depData);
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`%c[DATA STORE]计算selector: %c${name}
+    %cDeps: %c${_deps.join(', ')}
+    %cValue: %c${JSON.stringify(selectorValue, null, '  ')}
+    `, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR);
+    }
+
+    return selectorValue;
   }
 
   get(name) {
     if (name.indexOf(SELECTOR_PREFIX) === 0) {
       return this.getSelector(name);
     } else {
+      if (!Object.prototype.hasOwnProperty.call(this.store, name)) {
+        throw new Error(`未被初始化的数据项目: ${ name }`);
+      }
       return this.store[name]._data;
     }
   }
