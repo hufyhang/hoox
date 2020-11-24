@@ -79,7 +79,11 @@ class DataStore {
       accum[dataStoreName] = [
         stateInstace,
         (value) => {
-          this.update(dataStoreName, value);
+          if (typeof value === 'function') {
+            this.update(dataStoreName, value(this.get(dataStoreName)));
+          } else {
+            this.update(dataStoreName, value);
+          }
         }
       ];
 
