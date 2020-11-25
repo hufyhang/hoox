@@ -29,6 +29,33 @@ class DataStore {
   }
 
   /**
+   * 初始化data store。#initDataStore的语法糖。
+   */
+  init(configList) {
+    let data = {};
+    const selectors = [];
+
+    const selectorDefinitions = [];
+
+    configList.forEach((item) => {
+      const [name] = item;
+      if (name.indexOf(SELECTOR_PREFIX) === 0) {
+        selectors.push(name);
+
+        selectorDefinitions.push([...item]);
+      } else {
+        data = { ...data, [name]: item[1] };
+      }
+    });
+
+    this.initDataStore({ data, selectors });
+
+    selectorDefinitions.forEach((definition) => {
+      this.defineSelector(...definition);
+    });
+  }
+
+  /**
    * 初始化data store.
    * @param {object} initialObject 初始化对象.
    * 格式:
@@ -449,7 +476,15 @@ class DataStore {
 
 const store = new DataStore();
 
+/**
+ * Creates and returns a new data store instance.
+ */
+const createDataStore = () => {
+  return new DataStore();
+};
+
 export const dataStore = {
+  init: store.init.bind(store),
   initDataStore: store.initDataStore.bind(store),
   bindState: store.bindState.bind(store),
   bindStateHook: store.bindStateHook.bind(store),
@@ -458,5 +493,7 @@ export const dataStore = {
   getSelector: store.getSelector.bind(store),
   addDataListener: store.addDataListener.bind(store),
   addSelectorListener: store.addSelectorListener.bind(store),
-  defineSelector: store.defineSelector.bind(store)
+  defineSelector: store.defineSelector.bind(store),
+
+  createDataStore
 };
