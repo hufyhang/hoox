@@ -57,7 +57,11 @@ class DataStore {
       this.selectors[selectorName] = {
         _transformer: () => {},
         _deps: [],
-        _listeners: []
+        _listeners: [],
+        _cache: {
+          deps: [],
+          value: null
+        }
       };
     });
   }
@@ -190,6 +194,12 @@ class DataStore {
     };
   }
 
+  /**
+   * Shallow compare. Note that it always return true (i.e. is diff) when a and b are both function.
+   * @param {*} a Value A
+   * @param {*} b Value B
+   * @returns {boolean} Is diff or not.
+   */
   _compareValuesDiff(a, b) {
     const notFunction = (o) => typeof o !== 'function';
     const bothValueNotFunction = (a, b) => notFunction(a) && notFunction(b);
@@ -309,15 +319,35 @@ class DataStore {
   getSelector(name) {
     if (!this.selectors.hasOwnProperty(name)) throw new Error(`尚未定义selector: ${name}`);
 
-    const { _transformer, _deps } = this.selectors[name];
+    const { _transformer, _deps, _cache } = this.selectors[name];
     const depData = _deps.map((dep) => this.store[dep]._data);
-    const selectorValue = _transformer(...depData);
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`%c[DATA STORE]计算selector: %c${name}
+    const isDepDataChanged = depData.some((data, index, newDepDataList) => {
+      return newDepDataList.length !== _cache.deps.length || this._compareValuesDiff(data, _cache.deps[index]);
+    });
+
+    let selectorValue;
+    if (isDepDataChanged) {
+      selectorValue = _transformer(...depData);
+      _cache.value = selectorValue;
+      _cache.deps = [...depData];
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`%c[DATA STORE]计算selector: %c${name}
     %cDeps: %c${_deps.join(', ')}
     %cValue: %c${JSON.stringify(selectorValue, null, '  ')}
     `, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR);
+      }
+
+    } else {
+      selectorValue = _cache.value;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`%c[DATA STORE]使用缓存的selector值: %c${name}
+    %cDeps: %c${_deps.join(', ')}
+    %cValue: %c${JSON.stringify(selectorValue, null, '  ')}
+    `, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR, CONSOLE_STYLE.DEFAULT, CONSOLE_STYLE.SELECTOR);
+      }
     }
 
     return selectorValue;
@@ -357,7 +387,11 @@ class DataStore {
     this.selectors[selectorName] = {
       _transformer: transformer,
       _deps: depNames,
-      _listeners: []
+      _listeners: [],
+      _cache: {
+        deps: [],
+        value: null
+      }
     };
   }
 
